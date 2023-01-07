@@ -57,25 +57,28 @@ public final class UpmPoly implements ContractInterface {
 
     /**
      *
-     * @param ctx
-     * @param number
-     * @param name
-     * @param money
-     * @return
+     * creates a new player on the ledger
+     *
+     * @param ctx the transaction context
+     * @param playerId the Id of the player
+     * @param name the name of the player
+     * @param money the amount of money the plyer has in his account
+     * @return the created player
      */
-    public Player Player(final Context ctx, final String number, final String name, final int money) {
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public Player Player(final Context ctx, final String playerId, final String name, final int money) {
 
         ChaincodeStub stub = ctx.getStub();
 
-        if (AssetExists(ctx, number)) {
-            String errorMessage = String.format("Asset %s already exists", number);
+        if (AssetExists(ctx, playerId)) {
+            String errorMessage = String.format("Player %s already exists", playerId);
             System.out.println(errorMessage);
             throw new ChaincodeException(errorMessage, UpmPoly.AssetTransferErrors.ASSET_ALREADY_EXISTS.toString());
         }
 
-        Player player = new Player(number, name, money);
+        Player player = new Player(playerId, name, money);
         String playerJSON = genson.serialize(player);
-        stub.putStringState(number, playerJSON);
+        stub.putStringState(playerId, playerJSON);
 
         return player;
     }
