@@ -39,11 +39,11 @@ public final class Player {
     }
 
     public Player(@JsonProperty("playerID") final String playerID, @JsonProperty("name") final String name,
-                 @JsonProperty("credit") final int credit) {
+                  @JsonProperty("credit") final int credit, @JsonProperty("isEliminated") final boolean isEliminated) {
         this.playerID = playerID;
         this.name = name;
         this.credit = credit;
-        this.isEliminated = false;
+        this.isEliminated = isEliminated;
     }
 
     @Override

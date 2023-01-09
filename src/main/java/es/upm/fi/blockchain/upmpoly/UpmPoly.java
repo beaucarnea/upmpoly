@@ -39,7 +39,10 @@ public final class UpmPoly implements ContractInterface {
         ASSET_NOT_FOUND,
         ASSET_ALREADY_EXISTS,
         FACULTY_AREADY_OWNED,
-        PLAYER_BROKE
+        PLAYER_BROKE,
+        WRONG_ASSET,
+        FACULTY_HAS_NO_OWNER,
+        PLAYER_ELIMINATED
     }
 
     /**
@@ -51,8 +54,8 @@ public final class UpmPoly implements ContractInterface {
     public void InitLedger(final Context ctx) {
         ChaincodeStub stub = ctx.getStub();
 
-        Player(ctx, "player1", "Joao", 5);
-        Player(ctx, "player2", "Nicco", 10);
+        Player(ctx, "player1", "Joao", 4000);
+        Player(ctx, "player2", "Nicco", 5000000);
         Player(ctx, "player3", "Marius", 10000000);
 
         Faculty(ctx, "faculty1", "ComputerScience", 2000000, 5000);
@@ -81,7 +84,7 @@ public final class UpmPoly implements ContractInterface {
             throw new ChaincodeException(errorMessage, UpmPoly.AssetTransferErrors.ASSET_ALREADY_EXISTS.toString());
         }
 
-        Player player = new Player(playerId, name, money);
+        Player player = new Player(playerId, name, money, false);
         String playerJSON = genson.serialize(player);
         stub.putStringState(playerId, playerJSON);
 
@@ -136,6 +139,11 @@ public final class UpmPoly implements ContractInterface {
         }
 
         Player player = genson.deserialize(assetJSON, Player.class);
+        if (player.getPlayerID() == null) {
+            String errorMessage = String.format("Id %s is not a player", playerId);
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.WRONG_ASSET.toString());
+        }
         return player;
     }
 
@@ -152,13 +160,40 @@ public final class UpmPoly implements ContractInterface {
         String assetJSON = stub.getStringState(facultyId);
 
         if (assetJSON == null || assetJSON.isEmpty()) {
-            String errorMessage = String.format("Player %s does not exist", facultyId);
+            String errorMessage = String.format("Faculty %s does not exist", facultyId);
             System.out.println(errorMessage);
             throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
         }
 
         Faculty faculty = genson.deserialize(assetJSON, Faculty.class);
+
+        if (faculty.getFacultyID() == null) {
+            String errorMessage = String.format("Id %s is not a faculty", facultyId);
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.WRONG_ASSET.toString());
+        }
+
         return faculty;
+    }
+
+
+    /**
+     * Deletes player on the ledger.
+     *
+     * @param ctx the transaction context
+     * @param playerId the ID of the asset being deleted
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    private void DeleteAsset(final Context ctx, final String playerId) {
+        ChaincodeStub stub = ctx.getStub();
+
+        if (!AssetExists(ctx, playerId)) {
+            String errorMessage = String.format("Player %s does not exist", playerId);
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
+        }
+
+        stub.delState(playerId);
     }
 
     /**
@@ -174,23 +209,15 @@ public final class UpmPoly implements ContractInterface {
     public Faculty buyFaculty(final Context ctx, final String playerId, final String facultyId) {
         ChaincodeStub stub = ctx.getStub();
 
-        if (!AssetExists(ctx, playerId)) {
-            String errorMessage = String.format("Asset %s does not exist", playerId);
-            System.out.println(errorMessage);
-            throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
-        }
-
-        if (!AssetExists(ctx, facultyId)) {
-            String errorMessage = String.format("Asset %s does not exist", facultyId);
-            System.out.println(errorMessage);
-            throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
-        }
+        checkAssetExistence(ctx, playerId);
+        checkAssetExistence(ctx, facultyId);
 
         Player oldPlayer = this.ReadPlayer(ctx, playerId);
+        this.checkPlayerStatus(oldPlayer);
         Faculty oldFaculty = this.ReadFaculty(ctx, facultyId);
 
         if (oldFaculty.getOwner() != null) {
-            String errorMessage = String.format("Faculty %1$s atready owned by player %2$s", oldFaculty.getFacultyID(), oldPlayer.getPlayerID());
+            String errorMessage = String.format("Faculty %1$s already owned by player %2$s", oldFaculty.getFacultyID(), oldPlayer.getPlayerID());
             System.out.println(errorMessage);
             throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_AREADY_OWNED.toString());
         }
@@ -202,16 +229,202 @@ public final class UpmPoly implements ContractInterface {
             throw new ChaincodeException(errorMessage, AssetTransferErrors.PLAYER_BROKE.toString());
         }
 
-        Player newPlayer = new Player(playerId, oldPlayer.getName(), accountBalance);
+        Player newPlayer = new Player(playerId, oldPlayer.getName(), accountBalance, false);
         Faculty newFaculty = new Faculty(facultyId, oldFaculty.getName(), oldFaculty.getSalePrice(), oldFaculty.getRentalFee(), playerId);
 
         String newPlayerJSON = genson.serialize(newPlayer);
         stub.putStringState(playerId, newPlayerJSON);
 
         String newFacultyJSON = genson.serialize(newFaculty);
-        stub.putStringState(playerId, newFacultyJSON);
+        stub.putStringState(facultyId, newFacultyJSON);
 
         return newFaculty;
+    }
+
+    /**
+     *
+     * transfer the rental fee to the owner of a faculty
+     *
+     * @param ctx the transaction context
+     * @param facultyId id of the faculty
+     * @param visitorId id of the visiting player
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public void payRental(final Context ctx, final String facultyId, final String visitorId) {
+        ChaincodeStub stub = ctx.getStub();
+
+        checkAssetExistence(ctx, visitorId);
+        checkAssetExistence(ctx, facultyId);
+
+        Player oldVisitor = this.ReadPlayer(ctx, visitorId);
+        this.checkPlayerStatus(oldVisitor);
+        Faculty oldFaculty = this.ReadFaculty(ctx, facultyId);
+
+        if (oldFaculty.getOwner() == null) {
+            return;
+        }
+
+        Player oldOwner = this.ReadPlayer(ctx, oldFaculty.getOwner());
+        this.checkPlayerStatus(oldOwner);
+
+        Player newVisitor;
+        Player newOwner;
+
+        int accountBalance = oldVisitor.getCredit() - oldFaculty.getRentalFee();
+        if (accountBalance < 0) {
+            newVisitor = new Player(visitorId, oldVisitor.getName(), 0, true);
+            newOwner = new Player(oldOwner.getPlayerID(), oldOwner.getName(), oldOwner.getCredit() + oldVisitor.getCredit(), false);
+            String message = String.format("Player %1$s dont have enough money to pay the rental fee %2$s", oldVisitor.getPlayerID(), oldFaculty.getRentalFee());
+            System.out.println(message);
+
+            QueryResultsIterator<KeyValue> results = stub.getStateByRange("", "");
+
+            for (KeyValue result: results) {
+                Faculty faculty = genson.deserialize(result.getStringValue(), Faculty.class);
+                if (faculty.getFacultyID() != null && faculty.getOwner() != null && faculty.getOwner().equals(visitorId)) {
+                    Faculty newFaculty = new Faculty(faculty.getFacultyID(), faculty.getName(), faculty.getSalePrice(), faculty.getRentalFee(), null);
+                    String newFacultyJSON = genson.serialize(newFaculty);
+                    stub.putStringState(faculty.getFacultyID(), newFacultyJSON);
+                    System.out.println(faculty.toString());
+                }
+            }
+
+            String newVisitorJSON = genson.serialize(newVisitor);
+            stub.putStringState(visitorId, newVisitorJSON);
+
+            String newOwnerJSON = genson.serialize(newOwner);
+            stub.putStringState(oldOwner.getPlayerID(), newOwnerJSON);
+
+        } else {
+            newVisitor = new Player(visitorId, oldVisitor.getName(), accountBalance, false);
+            newOwner = new Player(oldOwner.getPlayerID(), oldOwner.getName(), oldOwner.getCredit() + oldFaculty.getRentalFee(), false);
+
+            String newVisitorJSON = genson.serialize(newVisitor);
+            stub.putStringState(visitorId, newVisitorJSON);
+
+            String newOwnerJSON = genson.serialize(newOwner);
+            stub.putStringState(oldOwner.getPlayerID(), newOwnerJSON);
+        }
+    }
+
+    /**
+     *
+     * trade's a faculty from one player to another
+     *
+     * @param ctx the transaction context
+     * @param facultyId faculty id
+     * @param buyerId id of the buying player
+     * @param price sale price
+     */
+    @Transaction(intent = Transaction.TYPE.SUBMIT)
+    public void tradeFaculty(final Context ctx, final String facultyId, final String buyerId, final int price) {
+        ChaincodeStub stub = ctx.getStub();
+
+        checkAssetExistence(ctx, buyerId);
+        checkAssetExistence(ctx, facultyId);
+
+        Player oldBuyer = this.ReadPlayer(ctx, buyerId);
+        this.checkPlayerStatus(oldBuyer);
+        Faculty oldFaculty = this.ReadFaculty(ctx, facultyId);
+
+        if (oldFaculty.getOwner() == null) {
+            String errorMessage = String.format("Faculty %s has no owner!", oldFaculty.getFacultyID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_HAS_NO_OWNER.toString());
+        }
+
+        Player oldOwner = this.ReadPlayer(ctx, oldFaculty.getOwner());
+        this.checkPlayerStatus(oldOwner);
+
+        int accountBalance = oldBuyer.getCredit() - price;
+        if (accountBalance < 0) {
+            String errorMessage = String.format("Player %1$s dont have enough money to trade for %2$s", oldBuyer.getPlayerID(), oldFaculty.getFacultyID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.PLAYER_BROKE.toString());
+        }
+
+        Player newBuyer = new Player(buyerId, oldBuyer.getName(), accountBalance, false);
+        Player newOwner = new Player(oldOwner.getPlayerID(), oldOwner.getName(), oldOwner.getCredit() + price, false);
+        Faculty newFaculty = new Faculty(facultyId, oldFaculty.getName(), oldFaculty.getSalePrice(),
+                oldFaculty.getRentalFee(), buyerId);
+
+        String newBuyerJSON = genson.serialize(newBuyer);
+        stub.putStringState(buyerId, newBuyerJSON);
+
+        String newOwnerJSON = genson.serialize(newOwner);
+        stub.putStringState(oldOwner.getPlayerID(), newOwnerJSON);
+
+        String newFacultyJSON = genson.serialize(newFaculty);
+        stub.putStringState(facultyId, newFacultyJSON);
+    }
+
+    /**
+     * Retrieves the owner of the faculty with the specified ID from the ledger.
+     *
+     * @param ctx the transaction context
+     * @param facultyId the ID of the asset
+     * @return owner id of the faculty
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public String getOwner(final Context ctx, final String facultyId) {
+        Faculty faculty = ReadFaculty(ctx, facultyId);
+        if (faculty.getOwner() == null) {
+            return "Faculty has no owner!";
+        }
+        return faculty.getOwner();
+    }
+
+    /**
+     * Retrieves the amount of money of the specified player from the ledger.
+     *
+     * @param ctx the transaction context
+     * @param playerId the ID of the player
+     * @return returns the amount of money a player has left
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public int getMoney(final Context ctx, final String playerId) {
+        Player player = ReadPlayer(ctx, playerId);
+        return player.getCredit();
+    }
+
+    /**
+     * Retrieves a faculty with the specified ID from the ledger.
+     *
+     * @param ctx the transaction context
+     * @param playerId the ID of the asset
+     * @return status of the player
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public boolean isEliminated(final Context ctx, final String playerId) {
+        Player player = ReadPlayer(ctx, playerId);
+        return player.getIsEliminated();
+    }
+
+    /**
+     * Retrieves all players from the ledger, which are not eliminated.
+     *
+     * @param ctx the transaction context
+     * @return array of players found on the ledger
+     */
+    @Transaction(intent = Transaction.TYPE.EVALUATE)
+    public String getPlayers(final Context ctx) {
+        ChaincodeStub stub = ctx.getStub();
+
+        List<String> queryResults = new ArrayList<String>();
+
+        QueryResultsIterator<KeyValue> results = stub.getStateByRange("", "");
+
+        for (KeyValue result: results) {
+            Player player = genson.deserialize(result.getStringValue(), Player.class);
+            if (player.getPlayerID() != null && !player.getIsEliminated()) {
+                queryResults.add(player.getName());
+                System.out.println(player.toString());
+            }
+        }
+
+        final String response = genson.serialize(queryResults);
+
+        return response;
     }
 
     /**
@@ -245,8 +458,10 @@ public final class UpmPoly implements ContractInterface {
 
         for (KeyValue result: results) {
             Player player = genson.deserialize(result.getStringValue(), Player.class);
-            queryResults.add(player);
-            System.out.println(player.toString());
+            if (player.getPlayerID() != null) {
+                queryResults.add(player);
+                System.out.println(player.toString());
+            }
         }
 
         final String response = genson.serialize(queryResults);
@@ -270,8 +485,10 @@ public final class UpmPoly implements ContractInterface {
 
         for (KeyValue result: results) {
             Faculty faculty = genson.deserialize(result.getStringValue(), Faculty.class);
-            queryResults.add(faculty);
-            System.out.println(faculty.toString());
+            if (faculty.getFacultyID() != null) {
+                queryResults.add(faculty);
+                System.out.println(faculty.toString());
+            }
         }
 
         final String response = genson.serialize(queryResults);
@@ -279,4 +496,32 @@ public final class UpmPoly implements ContractInterface {
         return response;
     }
 
+    /**
+     *
+     * checks if the queried asset exists
+     *
+     * @param ctx the transaction context
+     * @param assetId id of the asset
+     */
+    private void checkAssetExistence(final Context ctx, final String assetId) {
+        if (!AssetExists(ctx, assetId)) {
+            String errorMessage = String.format("Asset %s does not exist", assetId);
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
+        }
+    }
+
+    /**
+     *
+     * checks if a player has already been eliminated
+     *
+     * @param player the player to be checked
+     */
+    private void checkPlayerStatus(final Player player) {
+        if (player.getIsEliminated()) {
+            String errorMessage = String.format("Player %s is already eliminated!", player.getPlayerID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.PLAYER_ELIMINATED.toString());
+        }
+    }
 }
