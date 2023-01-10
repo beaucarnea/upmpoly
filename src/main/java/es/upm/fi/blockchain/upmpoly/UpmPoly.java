@@ -176,26 +176,6 @@ public final class UpmPoly implements ContractInterface {
         return faculty;
     }
 
-
-    /**
-     * Deletes player on the ledger.
-     *
-     * @param ctx the transaction context
-     * @param playerId the ID of the asset being deleted
-     */
-    @Transaction(intent = Transaction.TYPE.SUBMIT)
-    private void DeleteAsset(final Context ctx, final String playerId) {
-        ChaincodeStub stub = ctx.getStub();
-
-        if (!AssetExists(ctx, playerId)) {
-            String errorMessage = String.format("Player %s does not exist", playerId);
-            System.out.println(errorMessage);
-            throw new ChaincodeException(errorMessage, AssetTransferErrors.ASSET_NOT_FOUND.toString());
-        }
-
-        stub.delState(playerId);
-    }
-
     /**
      *
      * updates the ownership of an faculty and adjust the account balance of the buyer
