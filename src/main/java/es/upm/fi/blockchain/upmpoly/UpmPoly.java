@@ -38,11 +38,12 @@ public final class UpmPoly implements ContractInterface {
     private enum AssetTransferErrors {
         ASSET_NOT_FOUND,
         ASSET_ALREADY_EXISTS,
-        FACULTY_AREADY_OWNED,
+        FACULTY_ALREADY_OWNED,
         PLAYER_BROKE,
         WRONG_ASSET,
         FACULTY_HAS_NO_OWNER,
-        PLAYER_ELIMINATED
+        PLAYER_ELIMINATED,
+        OWN_FACULTY
     }
 
     /**
@@ -199,7 +200,7 @@ public final class UpmPoly implements ContractInterface {
         if (oldFaculty.getOwner() != null) {
             String errorMessage = String.format("Faculty %1$s already owned by player %2$s", oldFaculty.getFacultyID(), oldPlayer.getPlayerID());
             System.out.println(errorMessage);
-            throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_AREADY_OWNED.toString());
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_ALREADY_OWNED.toString());
         }
 
         int accountBalance = oldPlayer.getCredit() - oldFaculty.getSalePrice();
@@ -244,6 +245,12 @@ public final class UpmPoly implements ContractInterface {
             String errorMessage = String.format("Faculty %s has no owner!", oldFaculty.getFacultyID());
             System.out.println(errorMessage);
             throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_HAS_NO_OWNER.toString());
+        }
+
+        if (oldFaculty.getOwner().equals(visitorId)) {
+            String errorMessage = String.format("Faculty %s is already owned by visitor!", oldFaculty.getFacultyID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.OWN_FACULTY.toString());
         }
 
         Player oldOwner = this.ReadPlayer(ctx, oldFaculty.getOwner());
@@ -315,6 +322,12 @@ public final class UpmPoly implements ContractInterface {
             String errorMessage = String.format("Faculty %s has no owner!", oldFaculty.getFacultyID());
             System.out.println(errorMessage);
             throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_HAS_NO_OWNER.toString());
+        }
+
+        if (oldFaculty.getOwner().equals(buyerId)) {
+            String errorMessage = String.format("Faculty %s already owned by buyer!", oldFaculty.getFacultyID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.OWN_FACULTY.toString());
         }
 
         Player oldOwner = this.ReadPlayer(ctx, oldFaculty.getOwner());
