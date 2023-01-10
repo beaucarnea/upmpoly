@@ -230,7 +230,7 @@ public final class UpmPoly implements ContractInterface {
      * @param visitorId id of the visiting player
      */
     @Transaction(intent = Transaction.TYPE.SUBMIT)
-    public void payRental(final Context ctx, final String facultyId, final String visitorId) {
+    public Player payRental(final Context ctx, final String facultyId, final String visitorId) {
         ChaincodeStub stub = ctx.getStub();
 
         checkAssetExistence(ctx, visitorId);
@@ -287,6 +287,8 @@ public final class UpmPoly implements ContractInterface {
             String newOwnerJSON = genson.serialize(newOwner);
             stub.putStringState(oldOwner.getPlayerID(), newOwnerJSON);
         }
+
+        return newVisitor;
     }
 
     /**
@@ -299,7 +301,7 @@ public final class UpmPoly implements ContractInterface {
      * @param price sale price
      */
     @Transaction(intent = Transaction.TYPE.SUBMIT)
-    public void tradeFaculty(final Context ctx, final String facultyId, final String buyerId, final int price) {
+    public Faculty tradeFaculty(final Context ctx, final String facultyId, final String buyerId, final int price) {
         ChaincodeStub stub = ctx.getStub();
 
         checkAssetExistence(ctx, buyerId);
@@ -338,6 +340,8 @@ public final class UpmPoly implements ContractInterface {
 
         String newFacultyJSON = genson.serialize(newFaculty);
         stub.putStringState(facultyId, newFacultyJSON);
+
+        return newFaculty;
     }
 
     /**
