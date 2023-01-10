@@ -261,7 +261,9 @@ public final class UpmPoly implements ContractInterface {
         Faculty oldFaculty = this.ReadFaculty(ctx, facultyId);
 
         if (oldFaculty.getOwner() == null) {
-            return;
+            String errorMessage = String.format("Faculty %s has no owner!", oldFaculty.getFacultyID());
+            System.out.println(errorMessage);
+            throw new ChaincodeException(errorMessage, AssetTransferErrors.FACULTY_HAS_NO_OWNER.toString());
         }
 
         Player oldOwner = this.ReadPlayer(ctx, oldFaculty.getOwner());
